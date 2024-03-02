@@ -1,0 +1,166 @@
+/*
+* Mini Project .c
+*
+* Created: 24/11/2023 5:08:17 AM
+* Author : Sonalli
+*/
+
+#include <avr/io.h> //library for input output ports
+#include <util/delay.h> //software delay used for monitoring system
+#include <stdio.h> //standard library for C
+#include <stdlib.h> //standard library for C
+#include <string.h> //standard library used for string variables
+#include<avr/interrupt.h> //library for interrupt sub routines
+#include "lcd.h" //library for LCD communication
+#define LCD_RS PD0 //LCD RS pin
+#define LCD_E PD1 //LCD E pin
+#define LCD_D4 PD4 //LCD D4 pin
+#define LCD_D5 PD5 //LCD D5 pin
+#define LCD_D6 PD6 //LCD D6 pin
+#define LCD_D7 PD7 //LCD D7 pin
+#define MOISTURE_SENSOR_CHANNEL 0 //defining sensor channel as 0
+#define PUMP_PIN PD2 //motor pump pin
+#define MOISTURE_THRESHOLD 512 // Adjust as needed
+#define INT1_PIN PD3
+
+// Function to initialize INT1
+void INT1_Init() {
+EICRA |= (1 << ISC11); // Falling edge triggers interrupt
+EIMSK |= (1 << INT1); // Enable INT1
+}
+
+// Function to turn on the motor
+void TurnOnMotor() {
+PORTD |= (1 << PUMP_PIN); // Turn on water pump
+MoveServo(); // Call to move the servo
+PORTD &= ~(1 << PUMP_PIN); // Turn off water pump
+}
+
+// INT1 interrupt service routine
+ISR(INT1_vect) {
+TurnOnMotor();
+}
+void delay_1000ms(); //Function containing delay of 1000ms
+void delay_1000ms(){
+TCNT1=0x00; //Initializing timer1 in mormal mode
+TCNT1H = 0x2D; //Loading time high as 2D
+TCNT1L = 0xF5; //Loading Timer low as F5
+TCCR1A = 0; //Running timer in normal mode
+TCCR1B = 0x05; //Running in 1024 prescaler
+while((TIFR1&(1<<OCF1A))==0){} //wait until OCFIA is set
+TCCR1B = 0; //stop timer1
+TIFR1 = 1<<OCF1A; //clear the flag
+}
+void ADC_Init() {
+ADMUX = (1 << REFS0); // AVcc with external capacitor at AREF
+pin
+ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0); // Enable ADC and set
+prescaler
+}
+uint16_t ReadMoisture() {
+ADMUX = (ADMUX & 0xF8) | MOISTURE_SENSOR_CHANNEL; // Select ADC channel
+ADCSRA |= (1 << ADSC); // Start conversion
+while (ADCSRA & (1 << ADSC)); // Wait for conversion to complete
+return ADC; // Return ADC value
+}
+void LCD_Command(unsigned char cmnd) {
+// Sending upper nibble
+PORTD = (PORTD & 0x0F) | (cmnd & 0xF0);
+PORTD &= ~ (1<<LCD_RS); // RS = 0 for command
+PORTD |= (1<<LCD_E); // Enable pulse
+_delay_us(1);
+PORTD &= ~ (1<<LCD_E);
+_delay_us(200);
+// Sending lower nibble
+PORTD = (PORTD & 0x0F) | (cmnd << 4);
+PORTD |= (1<<LCD_E); //Enable pulse
+_delay_us(1);
+PORTD &= ~ (1<<LCD_E);
+_delay_ms(2);
+}
+void LCD_Char(unsigned char data) {
+// Sending upper nibble
+PORTD = (PORTD & 0x0F) | (data & 0xF0);
+PORTD |= (1<<LCD_RS); // RS = 1 for data
+PORTD |= (1<<LCD_E);
+_delay_us(1);
+PORTD &= ~ (1<<LCD_E);
+_delay_us(200);
+// Sending lower nibble
+PORTD = (PORTD & 0x0F) | (data << 4);
+PORTD |= (1<<LCD_E); //Setting the specific bit of port D
+_delay_us(1);
+PORTD &= ~ (1<<LCD_E); //clearing the specific bit of port D
+_delay_ms(2);
+}
+void LCD_Init() {
+DDRD = 0xFF; //To make PORTD as the output
+_delay_ms(20); // LCD Power ON delay
+LCD_Command(0x02); // 4-bit mode
+LCD_Command(0x28); // Initialize in 4-bit, 2 lines, 5x7 mode
+LCD_Command(0x0c); // Display ON, Cursor OFF
+LCD_Command(0x06); // Auto Increment cursor
+LCD_Command(0x01); // Clear display
+_delay_ms(2);
+}
+void LCD_String(char *str) { //Iterate through each of the characters in the
+string
+int i; //Initialising variable
+for(i=0; str[i]!=0; i++) { //for loop
+LCD_Char(str[i]);
+}
+}
+void LCD_Clear() { //Function to erase or reset the displaying characters
+LCD_Command(0x01); // Clear display
+_delay_ms(2);
+}
+void MoveServo() //Function to declare Servo
+{
+int delay = 5000; // Delay between movements
+OCR1A = 1000; _delay_ms(delay);
+OCR1A = 4000; _delay_ms(delay);
+}
+void PWM_Init() { //Function to initialise PWM
+DDRB |= 1 << PINB1; // Initialise Pin 9 as Output
+// Timer1 settings for PWM
+TCCR1A |= (1 << WGM11) | (1 << COM1A1); //Register used to configure the
+timer
+TCCR1B |= (1 << WGM13) | (1 << WGM12) | (1 << CS11); //Register used for clock
+select for Timer
+ICR1 = 40000; // Adjust this value according to your clock frequency
+}
+int main() {
+DDRD = 0xFF; // Set Port D as output
+ADC_Init(); // Initialize ADC
+LCD_Init(); // Initialize LCD
+PWM_Init(); // Initialize PWM
+DDRD &= ~(1 << INT1_PIN); // Set INT1_PIN as input
+PORTD |= (1 << INT1_PIN); // Enable internal pull-up resistor for INT1_PIN
+INT1_Init(); // Initialize INT1
+delay_1000ms();
+while(1) {
+uint16_t moisture = ReadMoisture(); //Declaring a variable and calling
+a function named ReadMoisture
+LCD_Clear(); //To clear the LCD display
+if (moisture < MOISTURE_THRESHOLD) {
+_delay_ms(500)
+PORTD &= ~(1 << PUMP_PIN); // Turn off water pump
+LCD_String("Pump Status: OFF"); //Display pump status
+}
+else {
+_delay_ms(100); // Update every 0.5 second
+PORTD |= (1 << PUMP_PIN); // Turn on water pump
+LCD_String("Pump Status: ON"); //Sending each character of
+string to LCD Display
+MoveServo(); // Call to move the servo
+}
+_delay_ms(1000); // Update every 0.5 second
+LCD_Command(0xC0); // Go to the second line
+char buffer[16]; //declaring an array of 16
+characters
+sprintf(buffer, "Moisture: %d", moisture); //Formatting string to store
+it in buffer
+LCD_String(buffer); //Send each character to LCD display
+_delay_ms(1000); // Update every 0.5 second
+}
+}
